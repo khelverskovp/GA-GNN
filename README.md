@@ -4,8 +4,8 @@ This repository contains the implementation of GA-GNN models developed as part o
 
 ## Files
 
-- `GA_GNN_V1.py`: GA-GNN model with output layers.
-- `GA_GNN_V2.py`: GA-GNN model with no output layers.
+- `GA_GNN_V1.py`: Code for the V1 models. 
+- `GA_GNN_V2.py`: Code for the V2 models.
 - `Datasets.py`: Dataset class for QM9 with atomic numbers, positions, and edge vectors.
 - `main.py`: Training and evaluation script.
 - `config.py`: Configuration file for model and training parameters.
