@@ -1,6 +1,6 @@
 # GA-GNN: Geometric Algebra Graph Neural Network
 
-This repository contains the implementation of GA-GNN models developed as part of the Master Thesis Graph Neural Networks based on Geometric Algebra at DTU.
+This repository contains the implementation of GA-GNN models developed as part of the Master Thesis "Graph Neural Networks based on Geometric Algebra" at DTU.
 
 ## Files
 
