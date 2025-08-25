@@ -12,7 +12,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 import wandb
 
 from Datasets import QM93DGraphs
-from GA_GNN_V2 import GAGNN_dipol, GAGNN_alpha, GAGNN_homo, GAGNN_R2
+from GA_GNN import GAGNN_dipol, GAGNN_alpha, GAGNN_homo, GAGNN_R2
 from config import config
 
 # -----------------------
@@ -471,3 +471,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
