@@ -22,7 +22,7 @@ Edit the file to choose the property you want to predict and adjust training par
   - `0` + `"dipole"` → dipole moment (μ)  
   - `1` + `"alpha"`  → polarizability (α)  
   - `2` + `"homo"`   → HOMO energy (ε_HOMO)  
-  - `5` + `"r2"`     → R² coefficient  
+  - `5` + `"r2"`     → R²
 - **Training hyperparameters**: `max_epochs`, `batch_size`, `lr`, `min_lr`, `patience`, `alpha`  
 - **Model parameters**: `state_dim`, `num_message_passing_rounds`  
 - **Data options**: `normalize_targets`, `split_seed`, `split_sizes`
