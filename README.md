@@ -10,5 +10,26 @@ This repository contains the implementation of GA-GNN models for "Design and Eva
 - `config.py`: Configuration file for model and training parameters.
 - `requirements.txt`: Python dependencies.
 
+## Running experiments
+
+All experiment settings are defined in **`config.py`**.  
+Edit the file to choose the property you want to predict and adjust training parameters as needed.
+
+### Key fields
+
+- **`experiment_number`**: creates `runs/exp_<n>/` for logs and checkpoints  
+- **`target_index` + `model_name`** (must match):
+  - `0` + `"dipole"` → dipole moment (μ)  
+  - `1` + `"alpha"`  → polarizability (α)  
+  - `2` + `"homo"`   → HOMO energy (ε_HOMO)  
+  - `5` + `"r2"`     → R² coefficient  
+- **Training hyperparameters**: `max_epochs`, `batch_size`, `lr`, `min_lr`, `patience`, `alpha`  
+- **Model parameters**: `state_dim`, `num_message_passing_rounds`  
+- **Data options**: `normalize_targets`, `split_seed`, `split_sizes`
+
+### Run training
+
+```bash
+python main.py
 
 
