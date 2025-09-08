@@ -9,7 +9,6 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split, Subset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-import wandb
 
 from Datasets import QM93DGraphs
 from GA_GNN import GAGNN_dipol, GAGNN_alpha, GAGNN_homo, GAGNN_R2
@@ -18,7 +17,7 @@ from config import config
 # -----------------------
 # Utilities
 # -----------------------
-def set_seed(seed):
+def set_seed(seed): 
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -37,6 +36,12 @@ def get_run_dir(exp_num):
     ensure_dir(os.path.join(run_dir, "logs"))
     ensure_dir(os.path.join(run_dir, "saved_models")) 
     return run_dir
+
+class DotDict(dict):
+    """dict with attribute access"""
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
 
 # -----------------------
 # Target normalization
@@ -150,8 +155,6 @@ def train(model, loader, optimizer, device, epoch, normalizer, cfg):
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         total_loss += loss.item()
-        if wandb.run:
-            wandb.log({"batch_loss": loss.item(), "epoch": epoch})
     return total_loss / len(loader)
 
 def evaluate(model, loader, device, normalizer, cfg):
@@ -210,33 +213,13 @@ def try_load_checkpoint(run_dir, tag="last"):
 # -----------------------
 def main():
     # Init W&B run with resume support
-    cfg = config
+    cfg = DotDict(config)
     exp_num = cfg["experiment_number"]
     run_dir = get_run_dir(exp_num)
 
-    # Reuse / store wandb run id for resume
-    wandb_id_path = os.path.join(run_dir, "wandb_run_id.txt")
-    wandb_id = None
-    if os.path.isfile(wandb_id_path):
-        with open(wandb_id_path, "r") as f:
-            wandb_id = f.read().strip()
-
-    wandb.init(
-        project="gagnn",
-        config=cfg,
-        name=cfg.get("run_name", "dipol_variant_4"),
-        resume="allow",
-        id=wandb_id
-    )
-    if wandb_id is None and wandb.run is not None:
-        with open(wandb_id_path, "w") as f:
-            f.write(wandb.run.id)
-
-    cfg = wandb.config  
-
     # Save config snapshot to run_dir
     with open(os.path.join(run_dir, "config.json"), "w") as f:
-        json.dump(dict(cfg), f, indent=2)
+        json.dump(cfg, f, indent=2)
 
     # ---- Seeds: fix training randomness, vary only the data split ----
     train_seed = int(getattr(cfg, "train_seed", 0))              # fixed across runs (can set in config)
@@ -401,13 +384,6 @@ def main():
         val_losses.append(val_loss)
 
         print(f"Epoch {epoch:02d} — Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Smoothed Val Loss: {smoothed_val_loss:.4f}")
-        wandb.log({
-            "epoch": epoch,
-            "train_loss": train_loss,
-            "val_loss": val_loss,
-            "smoothed_val_loss": smoothed_val_loss,
-            "lr": optimizer.param_groups[0]['lr']
-        })
 
         plateau_scheduler.step(smoothed_val_loss)
 
@@ -471,4 +447,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
