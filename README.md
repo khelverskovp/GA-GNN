@@ -27,9 +27,26 @@ Edit the file to choose the property you want to predict and adjust training par
 - **Model parameters**: `state_dim`, `num_message_passing_rounds`  
 - **Data options**: `normalize_targets`, `split_seed`, `split_sizes`
 
-### Run training and evaluate on test set when training is complete
+### Run training
 
 ```bash
 python main.py
 
+This will create a directory `runs/exp_<experiment_number>/` containing:
+
+- **checkpoints/**
+  - `last.ckpt` — checkpoint from the last epoch  
+  - `best.ckpt` — checkpoint with the best validation score  
+
+- **logs/**
+  - `train_val_losses.pkl` — training and validation loss history  
+  - `test_results.pkl` — predictions and ground truth on the test set  
+
+- **saved_models/**
+  - `best_model_state_dict.pt` — best model weights (ready to load for inference)  
+
+- `config.json` — snapshot of the configuration used for this run  
+- `splits.pkl` — indices for train/validation/test splits (so splits are reproducible)  
+
+Re-running with the same `experiment_number` resumes automatically from the last checkpoint.
 
