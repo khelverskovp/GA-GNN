@@ -1,21 +1,43 @@
 # config.py
 
 config = {
-    "experiment_number": "1", # for runs/experiment_number
-    "run_name": "dipole_1", # wandb run name
-    "target_index": 5,  # index 0 = mu, 1 = alpha, 2 = homo, 5 = R2
-    "max_epochs": 1000,
-    "patience": 30,
-    "alpha": 0.9,
-    "batch_size": 100,
-    "lr": 5e-4,
-    "state_dim": 64,
-    "num_message_passing_rounds": 4,
-    "min_lr": 1e-6,
-    "normalize_targets": False, # True for alpha and homo. False for dipole and R^2
-    "train_seed": 0,   # fixed across runs
-    "split_seed": 3,   # controls the random data split
-    "split_sizes": [110000, 10000, 10831],
-    "model_name": "r2_gw",   # one of: "dipole", "r2", "alpha", "homo"
+    # Directory setup
+    "experiment_number": "1",  # Used to create runs/exp_<experiment_number>/ for logs & checkpoints
+
+    # Task setup
+    "target_index": 0,         # Which QM9 property to predict:
+                               # 0 = dipole moment (mu), 1 = isotrpoic polarizability (alpha),
+                               # 2 = HOMO energy, 5 = electronic spatial extent (R^2)
+
+    # Training schedule
+    "max_epochs": 1000,        # Maximum number of training epochs
+    "patience": 30,            # Early stopping patience (epochs without improvement)
+    "alpha": 0.9,              # Smoothing factor for exponential moving average of val loss
+
+    # Optimizer / learning rate
+    "batch_size": 100,         # Number of graphs per training batch
+    "lr": 5e-4,                # Initial learning rate
+    "min_lr": 1e-6,            # Lower bound for learning rate (scheduler won’t reduce further)
+
+    # Model architecture
+    "state_dim": 128,           # Dimension of the multivector hidden state
+    "num_message_passing_rounds": 4,  # Number of GNN message passing iterations
+
+    # Data preprocessing
+    "normalize_targets": False, # Normalize target values?
+                               #   True  → for alpha, homo
+                               #   False → for dipole (mu) and R^2
+
+    # Random seeds
+    "train_seed": 0,           # Global seed for weight initialization etc. (fixed across runs)
+    "split_seed": 1,           # Seed controlling dataset split (train/val/test)
+
+    # Dataset splits
+    "split_sizes": [110000, 10000, 10831],  # Number of samples in [train, val, test]
+
+    # Model choice
+    "model_name": "dipole",    # Select which model to use:
+                               # "dipole", "r2", "alpha", or "homo"
 }
+
 
