@@ -27,7 +27,7 @@ Edit the file to choose the property you want to predict and adjust training par
 - **Model parameters**: `state_dim`, `num_message_passing_rounds`  
 - **Data options**: `normalize_targets`, `split_seed`, `split_sizes`
 
-### Run training
+### Run training and evaluate on test set when training is complete
 
 ```bash
 python main.py
