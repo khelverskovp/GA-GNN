@@ -212,7 +212,7 @@ def try_load_checkpoint(run_dir, tag="last"):
 # Main
 # -----------------------
 def main():
-    # Init W&B run with resume support
+    # Init with resume support
     cfg = DotDict(config)
     exp_num = cfg["experiment_number"]
     run_dir = get_run_dir(exp_num)
@@ -447,6 +447,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
