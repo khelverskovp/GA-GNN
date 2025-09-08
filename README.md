@@ -31,6 +31,7 @@ Edit the file to choose the property you want to predict and adjust training par
 
 ```bash
 python main.py
+```
 
 This will create a directory `runs/exp_<experiment_number>/` containing:
 
