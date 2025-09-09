@@ -37,6 +37,7 @@ def get_run_dir(exp_num):
     ensure_dir(os.path.join(run_dir, "saved_models")) 
     return run_dir
 
+# for config
 class DotDict(dict):
     """dict with attribute access"""
     __getattr__ = dict.get
@@ -447,6 +448,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
