@@ -7,7 +7,7 @@ config = {
     # Task setup
     "target_index": 0,         # Which QM9 property to predict:
                                # 0 = dipole moment (mu), 1 = isotrpoic polarizability (alpha),
-                               # 2 = HOMO energy, 5 = electronic spatial extent (R^2)
+                               # 2 = HOMO energy, etc. 
 
     # Training schedule
     "max_epochs": 1000,        # Maximum number of training epochs
@@ -25,8 +25,8 @@ config = {
 
     # Data preprocessing
     "normalize_targets": False, # Normalize target values?
-                               #   True  → for alpha, homo
-                               #   False → for dipole (mu) and R^2
+                               #   True  → for targets [1,2,3,4] 
+                               #   False → for targets [0,5,6,7,8,9,10,11]
 
     # Random seeds
     "train_seed": 0,           # Global seed for weight initialization etc. (fixed across runs)
@@ -37,7 +37,8 @@ config = {
 
     # Model choice
     "model_name": "dipole",    # Select which model to use:
-                               # "dipole", "r2", "alpha", or "homo"
+                               # "dipole", "r2", "alpha", or "scalar1" for scalar property without output MLP and "scalar2" for scalar property with output MLP.
 }
+
 
 
