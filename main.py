@@ -10,14 +10,24 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split, Subset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
+# -----------------------
+# Optional Weights & Biases
+# -----------------------
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    wandb = None  # type: ignore
+    WANDB_AVAILABLE = False
+
 from Datasets import QM93DGraphs
-from GA_GNN import GAGNN_dipol, GAGNN_alpha, GAGNN_homo, GAGNN_R2
+from GA_GNN_V2 import GAGNN_dipol, GAGNN_alpha, GAGNN_R2, GAGNN_scalar1, GAGNN_scalar2
 from config import config
 
 # -----------------------
 # Utilities
 # -----------------------
-def set_seed(seed): 
+def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -34,15 +44,8 @@ def get_run_dir(exp_num):
     run_dir = ensure_dir(os.path.join(base, f"exp_{exp_num}"))
     ensure_dir(os.path.join(run_dir, "checkpoints"))
     ensure_dir(os.path.join(run_dir, "logs"))
-    ensure_dir(os.path.join(run_dir, "saved_models")) 
+    ensure_dir(os.path.join(run_dir, "saved_models"))
     return run_dir
-
-# for config
-class DotDict(dict):
-    """dict with attribute access"""
-    __getattr__ = dict.get
-    __setattr__ = dict.__setitem__
-    __delattr__ = dict.__delitem__
 
 # -----------------------
 # Target normalization
@@ -106,7 +109,7 @@ class TargetNormalizer:
 def collate_graphs(batch):
     node_offset = 0
     all_coords, all_atomic_numbers, all_original_z, all_graph_indices = [], [], [], []
-    all_edges, all_edge_vectors, all_edge_lengths, all_labels = [], [], [], []
+    all_edges, all_edge_vectors, all_edge_lengths, all_labels, all_atomref = [], [], [], [], []
 
     for i, graph in enumerate(batch):
         num_nodes = graph['node_coordinates'].size(0)
@@ -118,6 +121,7 @@ def collate_graphs(batch):
         all_edge_vectors.append(graph['edge_vectors'])
         all_edge_lengths.append(graph['edge_lengths'])
         all_labels.append(graph['label'].unsqueeze(0))
+        all_atomref.append(graph['atomref'].unsqueeze(0))
         node_offset += num_nodes
 
     return {
@@ -131,6 +135,7 @@ def collate_graphs(batch):
         'edge_lengths': torch.cat(all_edge_lengths, dim=0),
         'node_graph_index': torch.cat(all_graph_indices, dim=0),
         'labels': torch.cat(all_labels, dim=0),
+        'atomref': torch.cat(all_atomref, dim=0),
     }
 
 def move_to_device(batch, device):
@@ -139,7 +144,7 @@ def move_to_device(batch, device):
 # -----------------------
 # Training / Eval
 # -----------------------
-def train(model, loader, optimizer, device, epoch, normalizer, cfg):
+def train(model, loader, optimizer, device, epoch, normalizer, cfg, use_wandb):
     model.train()
     total_loss = 0
     for batch_idx, batch in enumerate(loader):
@@ -147,15 +152,20 @@ def train(model, loader, optimizer, device, epoch, normalizer, cfg):
         optimizer.zero_grad()
         pred = model(batch)
         target = batch['labels'].unsqueeze(1)
-        target = normalizer.normalize(target)
+        residual = target - batch['atomref'].unsqueeze(1)  # zero if no atomref
+        target = normalizer.normalize(residual)
         if cfg.model_name == "alpha":
             loss = F.l1_loss(pred, target)  # MAE loss for alpha
         else:
             loss = F.mse_loss(pred, target)  # MSE loss otherwise
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.gradient_clipping)
         optimizer.step()
         total_loss += loss.item()
+
+        if use_wandb and WANDB_AVAILABLE and wandb.run is not None:
+            wandb.log({"batch_loss": loss.item(), "epoch": epoch})
+
     return total_loss / len(loader)
 
 def evaluate(model, loader, device, normalizer, cfg):
@@ -166,7 +176,8 @@ def evaluate(model, loader, device, normalizer, cfg):
             batch = move_to_device(batch, device)
             pred = model(batch)
             target = batch['labels'].unsqueeze(1)
-            target = normalizer.normalize(target)
+            residual = target - batch['atomref'].unsqueeze(1)  # subtract atomref
+            target = normalizer.normalize(residual)
             if cfg.model_name == "alpha":
                 total_loss += F.l1_loss(pred, target).item()
             else:
@@ -212,26 +223,59 @@ def try_load_checkpoint(run_dir, tag="last"):
 # -----------------------
 # Main
 # -----------------------
+def _get_cfg_value(cfg, key, default=None):
+    # helper to support both dict-like and attribute-like configs
+    if isinstance(cfg, dict):
+        return cfg.get(key, default)
+    return getattr(cfg, key, default)
+
 def main():
-    # Init with resume support
-    cfg = DotDict(config)
-    exp_num = cfg["experiment_number"]
+    cfg = config
+    exp_num = _get_cfg_value(cfg, "experiment_number")
+
+    # Decide if we use W&B for this run
+    use_wandb_cfg = _get_cfg_value(cfg, "use_wandb", True)
+    use_wandb = bool(use_wandb_cfg) and WANDB_AVAILABLE
+
     run_dir = get_run_dir(exp_num)
+
+    # -----------------------
+    # Optional W&B init (with resume)
+    # -----------------------
+    if use_wandb:
+        wandb_id_path = os.path.join(run_dir, "wandb_run_id.txt")
+        wandb_id = None
+        if os.path.isfile(wandb_id_path):
+            with open(wandb_id_path, "r") as f:
+                wandb_id = f.read().strip()
+
+        wandb.init(
+            project="gagnn",
+            config=cfg,
+            name=_get_cfg_value(cfg, "run_name", "dipol_variant_4"),
+            resume="allow",
+            id=wandb_id
+        )
+        if wandb_id is None and wandb.run is not None:
+            with open(wandb_id_path, "w") as f:
+                f.write(wandb.run.id)
+
+        cfg = wandb.config  # keep behavior the same when W&B is used
 
     # Save config snapshot to run_dir
     with open(os.path.join(run_dir, "config.json"), "w") as f:
-        json.dump(cfg, f, indent=2)
+        json.dump(dict(cfg), f, indent=2)
 
     # ---- Seeds: fix training randomness, vary only the data split ----
-    train_seed = int(getattr(cfg, "train_seed", 0))              # fixed across runs (can set in config)
-    split_seed = int(getattr(cfg, "split_seed", getattr(cfg, "seed", 0)))  # varies across runs
+    train_seed = int(_get_cfg_value(cfg, "train_seed", 0))  # fixed across runs
+    split_seed = int(_get_cfg_value(cfg, "split_seed", _get_cfg_value(cfg, "seed", 0)))  # varies across runs
 
-    set_seed(train_seed)  # fixes model init, dropout, etc.
+    set_seed(train_seed)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     dataset = QM93DGraphs(target_index=cfg.target_index)
 
-    # ---- Build/restore dataset splits (driven ONLY by split_seed) ----
+    # ---- Build/restore dataset splits (driven only by split_seed) ----
     splits_path = os.path.join(run_dir, "splits.pkl")
     splits = None
     if os.path.isfile(splits_path):
@@ -239,7 +283,7 @@ def main():
             splits = pickle.load(f)
         if int(splits.get("split_seed", -1)) != split_seed:
             print(f"[INFO] Existing splits were made with split_seed={splits.get('split_seed')}, "
-                f"but cfg split_seed={split_seed}. Regenerating splits.")
+                  f"but cfg split_seed={split_seed}. Regenerating splits.")
             splits = None
 
     if splits is None:
@@ -258,41 +302,61 @@ def main():
     else:
         train_indices, val_indices, test_indices = splits["train"], splits["val"], splits["test"]
 
-
     train_set = Subset(dataset, train_indices)
     val_set = Subset(dataset, val_indices)
     test_set = Subset(dataset, test_indices)
 
-    train_loader = DataLoader(train_set, batch_size=cfg.batch_size, shuffle=True, collate_fn=collate_graphs, drop_last=True)
-    val_loader = DataLoader(val_set, batch_size=cfg.batch_size, shuffle=False, collate_fn=collate_graphs, drop_last=True)
-    test_loader = DataLoader(test_set, batch_size=cfg.batch_size, shuffle=False, collate_fn=collate_graphs, drop_last=True)
+    train_loader = DataLoader(
+        train_set,
+        batch_size=cfg.batch_size,
+        shuffle=True,
+        collate_fn=collate_graphs,
+        drop_last=True
+    )
+    val_loader = DataLoader(
+        val_set,
+        batch_size=cfg.batch_size,
+        shuffle=False,
+        collate_fn=collate_graphs,
+        drop_last=True
+    )
+    test_loader = DataLoader(
+        test_set,
+        batch_size=cfg.batch_size,
+        shuffle=False,
+        collate_fn=collate_graphs,
+        drop_last=True
+    )
 
     # Normalizer
     normalizer = TargetNormalizer(enabled=cfg.normalize_targets)
+
     # Fit once on training set (labels) if fresh run; otherwise load from checkpoint
-    # (We still compute here for safety if no checkpoint is found)
     def fit_normalizer_from_train():
         if cfg.normalize_targets:
             all_targets = []
             for idx in train_indices:
                 d = dataset[idx]
-                all_targets.append(d['label'].unsqueeze(0))
+                residual = d['label'] - d['atomref']
+                all_targets.append(residual.unsqueeze(0))
             target_tensor = torch.cat(all_targets, dim=0).to(device)
             normalizer.fit(target_tensor)
 
     # Model/optim/scheduler
-    # --- Model builder driven by cfg.model_name ---
     MODEL_REGISTRY = {
-        "dipole": GAGNN_dipol,   # mu
-        "r2":     GAGNN_R2,      # R^2
-        "alpha":  GAGNN_alpha,   # polarizability
-        "homo":   GAGNN_homo,    # ε_HOMO
+        "dipole":  GAGNN_dipol,   # mu
+        "r2":      GAGNN_R2,      # R^2
+        "alpha":   GAGNN_alpha,   # polarizability
+        "scalar1": GAGNN_scalar1,  # scalar1 = No output MLP
+        "scalar2": GAGNN_scalar2,  # scalar2 = With output MLP
     }
 
     mn = str(cfg.model_name).lower()
     if mn not in MODEL_REGISTRY:
-        raise ValueError(f"Unknown model_name='{cfg.model_name}'. "
-                        f"Choose one of: {list(MODEL_REGISTRY.keys())}")
+        raise ValueError(
+            f"Unknown model_name='{cfg.model_name}'. "
+            f"Choose one of: {list(MODEL_REGISTRY.keys())}"
+        )
 
     ModelClass = MODEL_REGISTRY[mn]
     model = ModelClass(
@@ -331,14 +395,16 @@ def main():
         normalizer.load_state_dict(ckpt["normalizer"])
         load_rng_state(ckpt.get("rng_state", None))
         print(f"Resumed from epoch {ckpt['epoch']} (best_val_loss={best_val_loss:.6f})")
-        print("="*60)
-        print(f" Resuming training from epoch {ckpt['epoch']} "
-            f"(best_val_loss={best_val_loss:.6f}, patience_counter={patience_counter})")
-        print("="*60)
+        print("=" * 60)
+        print(
+            f" Resuming training from epoch {ckpt['epoch']} "
+            f"(best_val_loss={best_val_loss:.6f}, patience_counter={patience_counter})"
+        )
+        print("=" * 60)
     else:
-        print("="*60)
+        print("=" * 60)
         print(" Starting fresh training run")
-        print("="*60)
+        print("=" * 60)
 
         fit_normalizer_from_train()
 
@@ -376,19 +442,47 @@ def main():
     alpha = cfg.alpha
     patience = cfg.patience
 
+    spike_factor = 2.0  # ignore spikes larger than this factor times smoothed val loss
+
     for epoch in range(start_epoch, max_epochs + 1):
-        train_loss = train(model, train_loader, optimizer, device, epoch, normalizer, cfg)
+        train_loss = train(model, train_loader, optimizer, device, epoch, normalizer, cfg, use_wandb)
         val_loss = evaluate(model, val_loader, device, normalizer, cfg)
-        smoothed_val_loss = val_loss if smoothed_val_loss is None else alpha * smoothed_val_loss + (1 - alpha) * val_loss
+
+        if smoothed_val_loss is None:
+            smoothed_val_loss = val_loss
+        else:
+            # Spike detection: ignore abnormally large spikes
+            if val_loss > spike_factor * smoothed_val_loss:
+                print(
+                    f"⚠️  Ignored spike in val loss: {val_loss:.4f} "
+                    f"(> {spike_factor}× {smoothed_val_loss:.4f})"
+                )
+                val_loss_for_smoothing = smoothed_val_loss  # no update
+            else:
+                val_loss_for_smoothing = val_loss
+
+            smoothed_val_loss = alpha * smoothed_val_loss + (1 - alpha) * val_loss_for_smoothing
 
         train_losses.append(train_loss)
         val_losses.append(val_loss)
 
-        print(f"Epoch {epoch:02d} — Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Smoothed Val Loss: {smoothed_val_loss:.4f}")
+        print(
+            f"Epoch {epoch:02d} — Train Loss: {train_loss:.4f} | "
+            f"Val Loss: {val_loss:.4f} | Smoothed Val Loss: {smoothed_val_loss:.4f}"
+        )
+
+        if use_wandb and WANDB_AVAILABLE and wandb.run is not None:
+            wandb.log({
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "smoothed_val_loss": smoothed_val_loss,
+                "lr": optimizer.param_groups[0]['lr']
+            })
 
         plateau_scheduler.step(smoothed_val_loss)
 
-        # Save latest checkpoint 
+        # Save latest checkpoint
         state = {
             "epoch": epoch,
             "model_state": model.state_dict(),
@@ -406,7 +500,6 @@ def main():
         }
         save_checkpoint(run_dir, state, is_best=False, tag="last")
 
-        # Track best model
         improved = smoothed_val_loss < best_val_loss
         if improved:
             best_val_loss = smoothed_val_loss
@@ -433,21 +526,23 @@ def main():
         with torch.no_grad():
             for batch in test_loader:
                 batch = move_to_device(batch, device)
-                preds = model(batch).squeeze(1)
+                preds = model(batch)
                 preds = normalizer.denormalize(preds)
-                targets = batch['labels']
+                preds = preds + batch['atomref'].unsqueeze(1)
+                targets = batch['labels'].unsqueeze(1)
                 all_preds.append(preds.cpu())
                 all_targets.append(targets.cpu())
         with open(test_results_path, "wb") as f:
             pickle.dump({
-                "predictions": torch.cat(all_preds).numpy(),
-                "targets": torch.cat(all_targets).numpy()
+                "predictions": torch.cat(all_preds).squeeze(1).numpy(),
+                "targets": torch.cat(all_targets).squeeze(1).numpy()
             }, f)
 
     evaluate_on_test_set()
 
 if __name__ == "__main__":
     main()
+
 
 
 
