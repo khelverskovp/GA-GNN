@@ -4,7 +4,7 @@ This repository contains the implementation of GA-GNN models for "Design and Eva
 
 ## Files
 
-- `GA_GNN`: Code for the models used in the main evaluation for each target.
+- `GA_GNN`: Code for the architectures used in the main evaluation.
 - `Datasets.py`: Dataset class for QM9 with atomic numbers, positions, and edge vectors.
 - `main.py`: Training and evaluation script.
 - `config.py`: Configuration file for model and training parameters.
@@ -14,18 +14,6 @@ This repository contains the implementation of GA-GNN models for "Design and Eva
 
 All experiment settings are defined in **`config.py`**.  
 Edit the file to choose the property you want to predict and adjust training parameters as needed.
-
-### Key fields
-
-- **`experiment_number`**: creates `runs/exp_<n>/` for logs and checkpoints  
-- **`target_index` + `model_name`** (must match):
-  - `0` + `"dipole"` → dipole moment (μ)  
-  - `1` + `"alpha"`  → polarizability (α)  
-  - `2` + `"homo"`   → HOMO energy (ε_HOMO)  
-  - `5` + `"r2"`     → R²
-- **Training hyperparameters**: `max_epochs`, `batch_size`, `lr`, `min_lr`, `patience`, `alpha`  
-- **Model parameters**: `state_dim`, `num_message_passing_rounds`  
-- **Data options**: `normalize_targets`, `split_seed`, `split_sizes`
 
 ### Run training
 
