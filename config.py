@@ -38,7 +38,11 @@ config = {
     # Model choice
     "model_name": "dipole",    # Select which model to use:
                                # "dipole", "r2", "alpha", or "scalar1" for scalar property without output MLP and "scalar2" for scalar property with output MLP.
+
+    # Whether to use W&B
+    "use_wandb" : False,
 }
+
 
 
 
