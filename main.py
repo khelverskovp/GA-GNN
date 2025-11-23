@@ -21,7 +21,7 @@ except ImportError:
     WANDB_AVAILABLE = False
 
 from Datasets import QM93DGraphs
-from GA_GNN_V2 import GAGNN_dipol, GAGNN_alpha, GAGNN_R2, GAGNN_scalar1, GAGNN_scalar2
+from GA_GNN import GAGNN_dipol, GAGNN_alpha, GAGNN_R2, GAGNN_scalar1, GAGNN_scalar2
 from config import config
 
 # -----------------------
@@ -542,6 +542,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
