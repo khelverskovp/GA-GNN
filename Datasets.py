@@ -20,12 +20,15 @@ class QM93DGraphs(Dataset):
             9: 18.9984,
             }
 
+        # load atomref 
+        self.atomref = self.dataset.atomref(self.target_index)  # tensor [max_Z+1]
+
     def __len__(self):
         return len(self.dataset)
 
     def __getitem__(self, idx):
         data = self.dataset[idx]
-        pos = data.pos  
+        pos = data.pos  # [N, 3]
         z = data.z
         y = data.y
         target_index = self.target_index
@@ -60,6 +63,11 @@ class QM93DGraphs(Dataset):
         edge_lengths = edge_lengths[within_cutoff]
         edge_vectors = edge_vectors / (edge_lengths.unsqueeze(1))
 
+        if self.atomref is not None:
+            atomref_sum = self.atomref[z].sum()
+        else:
+            atomref_sum = torch.tensor(0.0)
+
         return {
             'node_coordinates': pos,
             'atomic_numbers': mapped_z,
@@ -68,4 +76,5 @@ class QM93DGraphs(Dataset):
             'edge_vectors': edge_vectors,
             'edge_lengths': edge_lengths,
             'label': y[0, target_index],
+            'atomref': atomref_sum,
         }
