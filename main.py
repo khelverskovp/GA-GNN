@@ -21,8 +21,8 @@ except ImportError:
     WANDB_AVAILABLE = False
 
 from Datasets import QM93DGraphs
-from GA_GNN import GAGNN_dipol, GAGNN_alpha, GAGNN_R2, GAGNN_scalar1, GAGNN_scalar2
-from config import config
+from GA_GNN_V2 import GAGNN_dipol, GAGNN_alpha, GAGNN_R2, GAGNN_scalar1, GAGNN_scalar2
+from config import config  # this is a dict
 
 # -----------------------
 # Utilities
@@ -89,7 +89,6 @@ class TargetNormalizer:
     def disable(self): self.enabled = False
 
     def state_dict(self):
-        # serialize to CPU tensors or floats
         return {
             "enabled": self.enabled,
             "mean": None if self.mean is None else float(self.mean.detach().cpu()),
@@ -152,14 +151,16 @@ def train(model, loader, optimizer, device, epoch, normalizer, cfg, use_wandb):
         optimizer.zero_grad()
         pred = model(batch)
         target = batch['labels'].unsqueeze(1)
-        residual = target - batch['atomref'].unsqueeze(1)  # zero if no atomref
+        residual = target - batch['atomref'].unsqueeze(1)
         target = normalizer.normalize(residual)
-        if cfg.model_name == "alpha":
-            loss = F.l1_loss(pred, target)  # MAE loss for alpha
+
+        if cfg["model_name"] == "alpha":
+            loss = F.l1_loss(pred, target)  # MAE for alpha
         else:
-            loss = F.mse_loss(pred, target)  # MSE loss otherwise
+            loss = F.mse_loss(pred, target)  # MSE otherwise
+
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.gradient_clipping)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg["gradient_clipping"])
         optimizer.step()
         total_loss += loss.item()
 
@@ -176,9 +177,10 @@ def evaluate(model, loader, device, normalizer, cfg):
             batch = move_to_device(batch, device)
             pred = model(batch)
             target = batch['labels'].unsqueeze(1)
-            residual = target - batch['atomref'].unsqueeze(1)  # subtract atomref
+            residual = target - batch['atomref'].unsqueeze(1)
             target = normalizer.normalize(residual)
-            if cfg.model_name == "alpha":
+
+            if cfg["model_name"] == "alpha":
                 total_loss += F.l1_loss(pred, target).item()
             else:
                 total_loss += F.mse_loss(pred, target).item()
@@ -223,20 +225,15 @@ def try_load_checkpoint(run_dir, tag="last"):
 # -----------------------
 # Main
 # -----------------------
-def _get_cfg_value(cfg, key, default=None):
-    # helper to support both dict-like and attribute-like configs
-    if isinstance(cfg, dict):
-        return cfg.get(key, default)
-    return getattr(cfg, key, default)
-
 def main():
-    cfg = config
-    exp_num = _get_cfg_value(cfg, "experiment_number")
+    # Always start from the raw dict from config.py
+    cfg = dict(config)  # make a shallow copy so we can modify if needed
 
-    # Decide if we use W&B for this run
-    use_wandb_cfg = _get_cfg_value(cfg, "use_wandb", True)
+    # Decide if we use W&B
+    use_wandb_cfg = cfg.get("use_wandb", True)
     use_wandb = bool(use_wandb_cfg) and WANDB_AVAILABLE
 
+    exp_num = cfg["experiment_number"]
     run_dir = get_run_dir(exp_num)
 
     # -----------------------
@@ -252,7 +249,7 @@ def main():
         wandb.init(
             project="gagnn",
             config=cfg,
-            name=_get_cfg_value(cfg, "run_name", "dipol_variant_4"),
+            name=cfg.get("run_name", "dipole"),
             resume="allow",
             id=wandb_id
         )
@@ -260,20 +257,21 @@ def main():
             with open(wandb_id_path, "w") as f:
                 f.write(wandb.run.id)
 
-        cfg = wandb.config  # keep behavior the same when W&B is used
+        # If you ever want sweeps/overrides, you could resync cfg here:
+        # cfg = dict(wandb.config)
 
     # Save config snapshot to run_dir
     with open(os.path.join(run_dir, "config.json"), "w") as f:
-        json.dump(dict(cfg), f, indent=2)
+        json.dump(cfg, f, indent=2)
 
     # ---- Seeds: fix training randomness, vary only the data split ----
-    train_seed = int(_get_cfg_value(cfg, "train_seed", 0))  # fixed across runs
-    split_seed = int(_get_cfg_value(cfg, "split_seed", _get_cfg_value(cfg, "seed", 0)))  # varies across runs
+    train_seed = int(cfg.get("train_seed", 0))
+    split_seed = int(cfg.get("split_seed", cfg.get("seed", train_seed)))
 
     set_seed(train_seed)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    dataset = QM93DGraphs(target_index=cfg.target_index)
+    dataset = QM93DGraphs(target_index=cfg["target_index"])
 
     # ---- Build/restore dataset splits (driven only by split_seed) ----
     splits_path = os.path.join(run_dir, "splits.pkl")
@@ -287,8 +285,8 @@ def main():
             splits = None
 
     if splits is None:
-        train_len, val_len, test_len = cfg.split_sizes
-        assert len(dataset) == sum(cfg.split_sizes), "Dataset size mismatch!"
+        train_len, val_len, test_len = cfg["split_sizes"]
+        assert len(dataset) == sum(cfg["split_sizes"]), "Dataset size mismatch!"
         split_gen = torch.Generator().manual_seed(split_seed)
         tr_sub, va_sub, te_sub = random_split(dataset, [train_len, val_len, test_len], generator=split_gen)
         train_indices, val_indices, test_indices = tr_sub.indices, va_sub.indices, te_sub.indices
@@ -308,32 +306,32 @@ def main():
 
     train_loader = DataLoader(
         train_set,
-        batch_size=cfg.batch_size,
+        batch_size=cfg["batch_size"],
         shuffle=True,
         collate_fn=collate_graphs,
         drop_last=True
     )
     val_loader = DataLoader(
         val_set,
-        batch_size=cfg.batch_size,
+        batch_size=cfg["batch_size"],
         shuffle=False,
         collate_fn=collate_graphs,
         drop_last=True
     )
     test_loader = DataLoader(
         test_set,
-        batch_size=cfg.batch_size,
+        batch_size=cfg["batch_size"],
         shuffle=False,
         collate_fn=collate_graphs,
         drop_last=True
     )
 
     # Normalizer
-    normalizer = TargetNormalizer(enabled=cfg.normalize_targets)
+    normalizer = TargetNormalizer(enabled=cfg["normalize_targets"])
 
     # Fit once on training set (labels) if fresh run; otherwise load from checkpoint
     def fit_normalizer_from_train():
-        if cfg.normalize_targets:
+        if cfg["normalize_targets"]:
             all_targets = []
             for idx in train_indices:
                 d = dataset[idx]
@@ -351,27 +349,27 @@ def main():
         "scalar2": GAGNN_scalar2,  # scalar2 = With output MLP
     }
 
-    mn = str(cfg.model_name).lower()
+    mn = str(cfg["model_name"]).lower()
     if mn not in MODEL_REGISTRY:
         raise ValueError(
-            f"Unknown model_name='{cfg.model_name}'. "
+            f"Unknown model_name='{cfg['model_name']}'. "
             f"Choose one of: {list(MODEL_REGISTRY.keys())}"
         )
 
     ModelClass = MODEL_REGISTRY[mn]
     model = ModelClass(
         output_dim=1,
-        state_dim=cfg.state_dim,
-        num_message_passing_rounds=cfg.num_message_passing_rounds,
+        state_dim=cfg["state_dim"],
+        num_message_passing_rounds=cfg["num_message_passing_rounds"],
         num_atom_types=5,
         num_rbf=20,
     ).to(device)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=0.01)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=0.01)
     plateau_scheduler = ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=5,
         threshold=1e-6, threshold_mode='rel',
-        cooldown=2, min_lr=cfg.min_lr
+        cooldown=2, min_lr=cfg["min_lr"]
     )
 
     # Resume if possible
@@ -405,7 +403,6 @@ def main():
         print("=" * 60)
         print(" Starting fresh training run")
         print("=" * 60)
-
         fit_normalizer_from_train()
 
     # Paths for logs / results
@@ -413,10 +410,10 @@ def main():
     test_results_path = os.path.join(run_dir, "logs", f"test_results.pkl")
     best_model_path = os.path.join(run_dir, "saved_models", "best_model_state_dict.pt")
 
-    # interrupter to snapshot on SIGTERM/SIGINT (e.g., preemption/timeout)
+    # interrupter to snapshot on SIGTERM/SIGINT
     def _snapshot_and_exit(signum, frame):
         state = {
-            "epoch": max(start_epoch - 1, 1),  # last finished epoch
+            "epoch": max(start_epoch - 1, 1),
             "model_state": model.state_dict(),
             "optimizer_state": optimizer.state_dict(),
             "scheduler_state": plateau_scheduler.state_dict(),
@@ -427,7 +424,7 @@ def main():
             "val_losses": val_losses,
             "normalizer": normalizer.state_dict(),
             "rng_state": rng_state_state_dict(),
-            "config": dict(cfg),
+            "config": cfg,
             "splits": {"train": train_indices, "val": val_indices, "test": test_indices},
         }
         path = save_checkpoint(run_dir, state, is_best=False, tag="emergency")
@@ -438,9 +435,9 @@ def main():
     signal.signal(signal.SIGINT, _snapshot_and_exit)
 
     # Training loop
-    max_epochs = cfg.max_epochs
-    alpha = cfg.alpha
-    patience = cfg.patience
+    max_epochs = cfg["max_epochs"]
+    alpha = cfg["alpha"]
+    patience = cfg["patience"]
 
     spike_factor = 2.0  # ignore spikes larger than this factor times smoothed val loss
 
@@ -451,13 +448,12 @@ def main():
         if smoothed_val_loss is None:
             smoothed_val_loss = val_loss
         else:
-            # Spike detection: ignore abnormally large spikes
             if val_loss > spike_factor * smoothed_val_loss:
                 print(
                     f"⚠️  Ignored spike in val loss: {val_loss:.4f} "
                     f"(> {spike_factor}× {smoothed_val_loss:.4f})"
                 )
-                val_loss_for_smoothing = smoothed_val_loss  # no update
+                val_loss_for_smoothing = smoothed_val_loss
             else:
                 val_loss_for_smoothing = val_loss
 
@@ -482,7 +478,6 @@ def main():
 
         plateau_scheduler.step(smoothed_val_loss)
 
-        # Save latest checkpoint
         state = {
             "epoch": epoch,
             "model_state": model.state_dict(),
@@ -495,7 +490,7 @@ def main():
             "val_losses": val_losses,
             "normalizer": normalizer.state_dict(),
             "rng_state": rng_state_state_dict(),
-            "config": dict(cfg),
+            "config": cfg,
             "splits": {"train": train_indices, "val": val_indices, "test": test_indices},
         }
         save_checkpoint(run_dir, state, is_best=False, tag="last")
@@ -542,6 +537,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
